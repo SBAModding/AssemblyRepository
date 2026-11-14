@@ -14,7 +14,7 @@ One **release** per game version. The tag is the game's version name, exactly as
 | Asset | What it is |
 |---|---|
 | `manifest.json` | Describes the set and how to check it. |
-| `interop.zip` | The assemblies (`*.dll`) and BepInEx's `assembly-hash.txt`, at the top level of the zip. |
+| `interop.zip` | The assemblies (`*.dll`) and `assembly-hash.txt`, at the top level of the zip. |
 
 `manifest.json`:
 
@@ -24,10 +24,27 @@ One **release** per game version. The tag is the game's version name, exactly as
   "gameVersion": "13.0.8",
   "unityVersion": "6000.3.24f1",
   "metadataSha256": "<sha-256 of the game's global-metadata.dat>",
+  "gameAssemblySha256": "<sha-256 of the patched libil2cpp.so the hash below was computed from (informational)>",
   "assemblyHash": "<contents of assembly-hash.txt>",
+  "generators": { "il2cppInterop": "1.5.2.0", "cpp2il": "2022.1.0.0" },
   "interop": { "file": "interop.zip", "size": 0, "sha256": "<sha-256 of interop.zip>", "files": 0 }
 }
 ```
+
+### The hash in `assembly-hash.txt`
+
+BepInEx only keeps an existing set when `assembly-hash.txt` equals an MD5 it computes itself: the patched
+`libil2cpp.so`, then (if the folder exists) every `*.dll` in `unity-libs` in directory order, then the versions of
+Il2CppInterop's generator and Cpp2IL. A device that has not built a set yet has no `unity-libs` folder, and the
+directory order of that folder differs between filesystems, so the hash stored in a published set is the one for **no
+`unity-libs` folder**, which is the same on every device. `tools/ComputeHash` computes it:
+
+```
+dotnet run --project tools/ComputeHash -- <patched libil2cpp.so> <Il2CppInterop.Generator.dll> <Cpp2IL.Core.dll>
+```
+
+The loader removes any existing `unity-libs` folder when it installs a set, so the hash BepInEx computes matches.
+If anything differs (another patch, other BepInEx versions), BepInEx simply regenerates the set.
 
 ## How the loader uses it
 
@@ -39,7 +56,11 @@ One **release** per game version. The tag is the game's version name, exactly as
 
 ## Adding a game version
 
-Generate the set on a device that has enough memory (launch the game once with Fusion on and a clean
-`BepInEx/interop` folder), then zip the `*.dll` files and `assembly-hash.txt` from that folder, write the manifest and
-publish a release named after the game version. The `.db` cache files in that folder are not included; they are rebuilt
-on demand.
+1. On a device with enough memory, launch the game once with Fusion on and nothing in `BepInEx/interop`, so BepInEx
+   generates the set.
+2. Zip the `*.dll` files from `BepInEx/interop` (not the `.db` caches, which are rebuilt on demand).
+3. Compute the hash with `tools/ComputeHash` (above) from the device's patched `libil2cpp.so`
+   (`app_sba_runtime/<game package>/libil2cpp.so` in the loader's data) and the two BepInEx dlls, and add it to the zip
+   as `assembly-hash.txt`.
+4. Write `manifest.json` (the sha-256 of the game's `global-metadata.dat` is `metadataSha256`) and publish a release
+   named after the game version with `manifest.json` and `interop.zip`.
